@@ -118,6 +118,20 @@ const sendMessage = async ({ chatId, senderId, text }) => {
     updatedAt: message.createdAt,
   });
 
+  const matchResult = await Chat.updateOne(
+    { _id: chatId, 'readState.user': senderId },
+    { $set: { 'readState.$.lastReadAt': message.createdAt } }
+  );
+  const matched =
+    matchResult.matchedCount ?? matchResult.nModified ?? matchResult.modifiedCount ?? 0;
+
+  if (!matched) {
+    await Chat.updateOne(
+      { _id: chatId },
+      { $push: { readState: { user: senderId, lastReadAt: message.createdAt } } }
+    );
+  }
+
   const safeText = await cryptoService.decrypt(message, { viewerId: senderId });
 
   return toMessageDto(message, safeText);

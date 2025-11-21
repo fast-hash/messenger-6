@@ -111,12 +111,15 @@ const toChatDto = (chatDoc, currentUserId) => {
 const computeUnreadCount = async (chat, userId) => {
   const state = (chat.readState || []).find((entry) => entry.user && entry.user.toString() === userId.toString());
   const lastReadAt = state ? state.lastReadAt : null;
+  const userObjectId = toObjectId(userId);
+
+  const baseQuery = { chat: chat._id, sender: { $ne: userObjectId } };
 
   if (!lastReadAt) {
-    return Message.countDocuments({ chat: chat._id });
+    return Message.countDocuments(baseQuery);
   }
 
-  return Message.countDocuments({ chat: chat._id, createdAt: { $gt: lastReadAt } });
+  return Message.countDocuments({ ...baseQuery, createdAt: { $gt: lastReadAt } });
 };
 
 const getOrCreateDirectChat = async ({ userId, otherUserId }) => {

@@ -382,6 +382,12 @@ button {
   background: #ffffff;
 }
 
+.vk-input__attach-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .vk-input__circle-btn {
   width: 32px;
   height: 32px;
@@ -413,6 +419,30 @@ button {
   background: transparent;
   font-size: 14px;
   line-height: 1.4;
+}
+
+.vk-input__attach-hint {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #333333;
+  z-index: 10;
+  max-width: 260px;
+}
+
+.vk-input__attach-hint-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.vk-input__attach-hint-text {
+  opacity: 0.8;
 }
 
 .vk-input__send-wrapper {
@@ -820,6 +850,16 @@ button {
 .group-card__meta {
   font-size: 13px;
   color: #4b5563;
+}
+
+.user-list-scroll {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.group-list-scroll {
+  max-height: 320px;
+  overflow-y: auto;
 }
 
 .list-scroll {
