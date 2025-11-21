@@ -464,6 +464,10 @@ const groupApproveRequest = async ({ chatId, adminId, userId }) => {
     (req) => req.user && req.user.toString() !== userId.toString()
   );
   chat.participants = normalizeObjectIds([...(chat.participants || []), userId]);
+  chat.removedParticipants = (chat.removedParticipants || []).filter(
+    (id) => id.toString() !== userId.toString()
+  );
+  chat.removedFor = (chat.removedFor || []).filter((id) => id.toString() !== userId.toString());
   await chat.save();
 
   return getGroupDetails({ chatId, userId: adminId });
