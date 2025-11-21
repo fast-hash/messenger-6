@@ -10,6 +10,8 @@ const mapChat = (chat, currentUserId) => {
     notificationsEnabled: chat.notificationsEnabled ?? true,
     unreadCount: chat.unreadCount ?? 0,
     lastReadAt: chat.lastReadAt || null,
+    removedParticipants: chat.removedParticipants || [],
+    blocks: chat.blocks || [],
   };
 
   if (chat.type === 'group') {
@@ -32,6 +34,7 @@ export const useChatStore = create((set, get) => ({
   chats: [],
   selectedChatId: null,
   messages: {},
+  messageMeta: {},
   typing: {},
   socket: null,
   connectSocket(currentUserId) {
@@ -109,7 +112,7 @@ export const useChatStore = create((set, get) => ({
     if (socket) {
       socket.disconnect();
     }
-    set({ chats: [], selectedChatId: null, messages: {}, typing: {}, socket: null });
+    set({ chats: [], selectedChatId: null, messages: {}, messageMeta: {}, typing: {}, socket: null });
   },
   async loadChats(currentUserId) {
     const { chats } = await chatApi.getChats();
@@ -141,13 +144,20 @@ export const useChatStore = create((set, get) => ({
     }
   },
   async loadMessages(chatId) {
-    const { messages } = await messagesApi.getMessages(chatId);
+    const { messages, lastReadAt } = await messagesApi.getMessages(chatId);
     set((state) => ({
       messages: {
         ...state.messages,
         [chatId]: messages,
       },
+      messageMeta: {
+        ...state.messageMeta,
+        [chatId]: { lastReadAt },
+      },
     }));
+    if (lastReadAt) {
+      get().setChatLastRead(chatId, lastReadAt);
+    }
   },
   async sendMessage(chatId, text) {
     const socket = get().socket;
@@ -172,6 +182,11 @@ export const useChatStore = create((set, get) => ({
         },
       };
     });
+  },
+  setChatBlocks(chatId, blocks) {
+    set((state) => ({
+      chats: state.chats.map((chat) => (chat.id === chatId ? { ...chat, blocks } : chat)),
+    }));
   },
   updateChatLastMessage(chatId, message) {
     set((state) => {

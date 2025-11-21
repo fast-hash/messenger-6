@@ -3,14 +3,23 @@ import { useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import ChatList from '../components/ChatList';
 import ChatWindow from '../components/ChatWindow';
-import MessageInput from '../components/MessageInput';
 import ConfirmDialog from '../components/ConfirmDialog';
 import GroupDirectoryModal from '../components/GroupDirectoryModal';
 import GroupManageModal from '../components/GroupManageModal';
 import UserPicker from '../components/UserPicker';
+import ChatManagementModal from '../components/ChatManagementModal';
 import { useAuthStore } from '../store/authStore';
 import { useChatStore } from '../store/chatStore';
-import { createDirectChat, createGroupChat, listGroups, requestJoin } from '../api/chatApi';
+import {
+  createDirectChat,
+  createGroupChat,
+  listGroups,
+  requestJoin,
+  blockChat,
+  unblockChat,
+  listDirectChatsAdmin,
+  clearBlocksAdmin,
+} from '../api/chatApi';
 import { searchUsers } from '../api/usersApi';
 import { formatRole } from '../utils/roleLabels';
 
@@ -21,6 +30,7 @@ const ChatsPage = () => {
     chats,
     selectedChatId,
     messages,
+    messageMeta,
     typing,
     loadChats,
     setSelectedChat,
@@ -44,6 +54,9 @@ const ChatsPage = () => {
   const [newGroupTitle, setNewGroupTitle] = useState('');
   const [newGroupParticipants, setNewGroupParticipants] = useState([]);
   const [confirmState, setConfirmState] = useState(null);
+  const [showManagement, setShowManagement] = useState(false);
+  const [directChatsAdmin, setDirectChatsAdmin] = useState([]);
+  const [directChatsLoading, setDirectChatsLoading] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -180,6 +193,47 @@ const ChatsPage = () => {
     setManageChatId(chatId);
   };
 
+  const handleBlockChat = async (chatId) => {
+    const { chat } = await blockChat(chatId);
+    if (chat) {
+      upsertChat(chat, user.id);
+    }
+  };
+
+  const handleUnblockChat = async (chatId) => {
+    const { chat } = await unblockChat(chatId);
+    if (chat) {
+      upsertChat(chat, user.id);
+    }
+  };
+
+  const openManagementModal = async () => {
+    setShowManagement(true);
+    await refreshGroups();
+    setDirectChatsLoading(true);
+    try {
+      const { chats: directList } = await listDirectChatsAdmin();
+      setDirectChatsAdmin(directList);
+    } catch (error) {
+      setDirectChatsAdmin([]);
+    } finally {
+      setDirectChatsLoading(false);
+    }
+  };
+
+  const handleAdminClearBlocks = async (chatId) => {
+    try {
+      const { chat } = await clearBlocksAdmin(chatId);
+      setDirectChatsAdmin((prev) => prev.map((item) => (item.id === chat.id ? chat : item)));
+      if (chat) {
+        upsertChat(chat, user.id);
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-alert
+      alert('Не удалось снять блокировку');
+    }
+  };
+
   const handleManageUpdated = (chat) => {
     upsertChat(chat, user.id);
     refreshGroups();
@@ -222,6 +276,11 @@ const ChatsPage = () => {
             <button type="button" className="primary-btn" onClick={() => setShowChoice(true)}>
               Новый чат
             </button>
+            {canCreateGroup && (
+              <button type="button" className="secondary-btn" onClick={openManagementModal}>
+                Управление чатами
+              </button>
+            )}
           </div>
           <ChatList chats={chats} selectedChatId={selectedChatId} onSelect={handleSelectChat} />
         </div>
@@ -232,18 +291,17 @@ const ChatsPage = () => {
           <ChatWindow
             chat={selectedChat}
             messages={messages[selectedChatId] || []}
+            lastReadAt={messageMeta[selectedChatId]?.lastReadAt || null}
             currentUserId={user.id}
             typingUsers={typingUsers}
             onToggleNotifications={toggleNotifications}
             onOpenManage={openManageModal}
-          />
-          <MessageInput
-            disabled={!socket || (selectedChat.type === 'group' && selectedChat.removed)}
             onSend={(text) => sendMessage(selectedChatId, text)}
-            onTypingStart={() =>
-              !selectedChat.removed && socket?.emit('typing:start', { chatId: selectedChatId })
-            }
-            onTypingStop={() => !selectedChat.removed && socket?.emit('typing:stop', { chatId: selectedChatId })}
+            onTypingStart={(chatId) => socket?.emit('typing:start', { chatId })}
+            onTypingStop={(chatId) => socket?.emit('typing:stop', { chatId })}
+            socketConnected={!!socket}
+            onBlock={handleBlockChat}
+            onUnblock={handleUnblockChat}
           />
         </div>
       )}
@@ -331,6 +389,24 @@ const ChatsPage = () => {
         users={users}
         onUpdated={handleManageUpdated}
         openConfirm={openConfirm}
+      />
+
+      <ChatManagementModal
+        isOpen={showManagement}
+        onClose={() => setShowManagement(false)}
+        groups={groups}
+        groupsLoading={groupsLoading}
+        onOpenGroup={(chatId) => {
+          setSelectedChat(chatId);
+          setShowManagement(false);
+        }}
+        onManageGroup={(chatId) => {
+          openManageModal(chatId);
+          setShowManagement(false);
+        }}
+        directChats={directChatsAdmin}
+        directLoading={directChatsLoading}
+        onClearBlocks={handleAdminClearBlocks}
       />
 
       {confirmState && (
