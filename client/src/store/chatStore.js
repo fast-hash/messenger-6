@@ -47,21 +47,31 @@ export const useChatStore = create((set, get) => ({
     });
 
     socket.on('message:new', ({ message }) => {
-      get().addMessage(message.chatId, message);
-      get().updateChatLastMessage(message.chatId, message);
       const state = get();
+      const chatState = state.chats.find((c) => c.id === message.chatId);
+      const participantIds = (chatState?.participants || []).map((p) => p.id || p._id || p);
+      const isRemovedFromGroup =
+        chatState?.type === 'group' &&
+        (chatState.removed ||
+          chatState.removedParticipants?.includes(currentUserId) ||
+          !participantIds.includes(currentUserId));
+
+      if (isRemovedFromGroup) {
+        return;
+      }
+
+      state.addMessage(message.chatId, message);
+      state.updateChatLastMessage(message.chatId, message);
       const isOwn = message.senderId === currentUserId;
       const isCurrent = state.selectedChatId === message.chatId;
       if (isCurrent && !isOwn) {
         state.setChatLastRead(message.chatId, message.createdAt);
       }
       if (!isOwn && !isCurrent) {
-        const chat = state.chats.find((c) => c.id === message.chatId);
-        const nextCount = (chat?.unreadCount || 0) + 1;
+        const nextCount = (chatState?.unreadCount || 0) + 1;
         state.setChatUnreadCount(message.chatId, nextCount);
       }
 
-      const chatState = state.chats.find((c) => c.id === message.chatId);
       const notificationsEnabled = chatState?.notificationsEnabled !== false;
       if (!isOwn && notificationsEnabled) {
         playIncomingSound();

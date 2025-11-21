@@ -67,22 +67,20 @@ const ChatWindow = ({
     const threshold = lastReadAt || chat.lastReadAt;
     const currentUserIdStr = currentUserId?.toString();
 
-    const separatorId = messages.reduce((acc, message) => {
-      if (acc) return acc;
+    const separatorId = messages.find((message) => {
       const senderId = getSenderId(message);
       const isOwnMessage = senderId && currentUserIdStr && senderId.toString() === currentUserIdStr;
-      if (isOwnMessage) return null;
+      if (isOwnMessage) return false;
 
       if (!threshold) {
-        return message.id || message._id || null;
+        return true;
       }
 
-      const isNewerThanRead = new Date(message.createdAt) > new Date(threshold);
-      return isNewerThanRead ? message.id || message._id || null : null;
-    }, null);
+      return new Date(message.createdAt) > new Date(threshold);
+    });
 
     if (separatorId) {
-      setUnreadSeparatorMessageId(separatorId);
+      setUnreadSeparatorMessageId(separatorId.id || separatorId._id || null);
     }
   }, [chat, messages, lastReadAt, unreadSeparatorMessageId, separatorCleared, currentUserId]);
 
@@ -277,7 +275,7 @@ const ChatWindow = ({
       <div className="chat-window__messages" ref={listRef}>
         {messages.length === 0 && <p className="empty-state">Нет сообщений. Напишите первым.</p>}
         {messages.map((message) => {
-          const isMine = message.senderId === currentUserId;
+          const isMine = getSenderId(message)?.toString() === currentUserId?.toString();
           const sender = message.sender || {};
           const authorName = sender.displayName || sender.username || 'Участник';
           const metaParts = [];
