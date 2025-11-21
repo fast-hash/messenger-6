@@ -273,14 +273,24 @@ const ChatsPage = () => {
       sidebar={
         <div className="sidebar">
           <div className="sidebar__top">
-            <button type="button" className="primary-btn" onClick={() => setShowChoice(true)}>
-              Новый чат
-            </button>
-            {canCreateGroup && (
-              <button type="button" className="secondary-btn" onClick={openManagementModal}>
-                Управление чатами
+            <div className="sidebar-actions">
+              <button
+                type="button"
+                className="sidebar-actions__btn"
+                onClick={() => setShowChoice(true)}
+              >
+                Новый чат
               </button>
-            )}
+              {canCreateGroup && (
+                <button
+                  type="button"
+                  className="sidebar-actions__btn"
+                  onClick={openManagementModal}
+                >
+                  Управление чатами
+                </button>
+              )}
+            </div>
           </div>
           <ChatList chats={chats} selectedChatId={selectedChatId} onSelect={handleSelectChat} />
         </div>

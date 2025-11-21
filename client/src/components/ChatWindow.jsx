@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import MessageInput from './MessageInput';
+import VkStyleInput from './VkStyleInput';
 import { formatRole } from '../utils/roleLabels';
 import { ensureNotificationPermission } from '../utils/notifications';
 import { formatMessageDate } from '../utils/dateUtils';
@@ -21,17 +21,41 @@ const ChatWindow = ({
   onUnblock,
 }) => {
   const listRef = useRef(null);
+  const typingTimer = useRef(null);
+  const typingActive = useRef(false);
   const [showSettings, setShowSettings] = useState(false);
   const [unreadSeparatorMessageId, setUnreadSeparatorMessageId] = useState(null);
   const [showManageModal, setShowManageModal] = useState(false);
   const [separatorCleared, setSeparatorCleared] = useState(false);
+  const [messageText, setMessageText] = useState('');
 
   useEffect(() => {
     setShowSettings(false);
     setUnreadSeparatorMessageId(null);
     setShowManageModal(false);
     setSeparatorCleared(false);
-  }, [chat.id]);
+    setMessageText('');
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+    }
+    if (typingActive.current && onTypingStop) {
+      onTypingStop(chat.id);
+    }
+    typingActive.current = false;
+  }, [chat.id, onTypingStop]);
+
+  useEffect(
+    () => () => {
+      if (typingTimer.current) {
+        clearTimeout(typingTimer.current);
+      }
+      if (typingActive.current && onTypingStop) {
+        onTypingStop(chat.id);
+      }
+      typingActive.current = false;
+    },
+    [chat.id, onTypingStop]
+  );
 
   useEffect(() => {
     if (!chat || unreadSeparatorMessageId || separatorCleared) return;
@@ -136,13 +160,62 @@ const ChatWindow = ({
     return '';
   }, [chatBlocked, isBlockedByMe, isBlockedMe, isRemovedFromGroup]);
 
-  const handleSend = (text) => {
+  const handleInputChange = (value) => {
+    setMessageText(value);
+    const hasText = value.trim().length > 0;
+
+    if (hasText && !typingActive.current) {
+      onTypingStart && onTypingStart(chat.id);
+      typingActive.current = true;
+    }
+
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+    }
+
+    typingTimer.current = setTimeout(() => {
+      if (typingActive.current) {
+        onTypingStop && onTypingStop(chat.id);
+      }
+      typingActive.current = false;
+    }, 1200);
+
+    if (!hasText) {
+      if (typingActive.current) {
+        onTypingStop && onTypingStop(chat.id);
+      }
+      typingActive.current = false;
+    }
+  };
+
+  const handleSend = () => {
+    const trimmed = messageText.trim();
+    if (!trimmed) return;
     setUnreadSeparatorMessageId(null);
     setSeparatorCleared(true);
-    onSend(text);
+    onSend(trimmed);
+    setMessageText('');
+    if (typingActive.current) {
+      onTypingStop && onTypingStop(chat.id);
+    }
+    typingActive.current = false;
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+    }
   };
 
   const showInput = !isRemovedFromGroup && !chatBlocked;
+  const typingHintVisible = showInput && typingHint;
+
+  useEffect(() => {
+    if (!showInput && typingActive.current) {
+      if (typingTimer.current) {
+        clearTimeout(typingTimer.current);
+      }
+      onTypingStop && onTypingStop(chat.id);
+      typingActive.current = false;
+    }
+  }, [showInput, onTypingStop, chat.id]);
 
   return (
     <div className="chat-window">
@@ -223,16 +296,19 @@ const ChatWindow = ({
           );
         })}
       </div>
-      {bottomNotice && <div className="typing-hint warning">{bottomNotice}</div>}
-      {!bottomNotice && typingHint && <div className="typing-hint">{typingHint}</div>}
-      {showInput && (
-        <MessageInput
-          disabled={!socketConnected}
-          onSend={handleSend}
-          onTypingStart={() => onTypingStart && onTypingStart(chat.id)}
-          onTypingStop={() => onTypingStop && onTypingStop(chat.id)}
-        />
-      )}
+      {typingHintVisible && <div className="typing-hint">{typingHint}</div>}
+      <div className="chat-input-bar">
+        {bottomNotice ? (
+          <div className="chat-input-banner">{bottomNotice}</div>
+        ) : (
+          <VkStyleInput
+            value={messageText}
+            onChange={handleInputChange}
+            onSend={handleSend}
+            disabled={!socketConnected}
+          />
+        )}
+      </div>
       {showManageModal && chat.type === 'direct' && (
         <div className="modal-backdrop" onClick={() => setShowManageModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
