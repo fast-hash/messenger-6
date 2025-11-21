@@ -44,6 +44,9 @@ const ChatWindow = ({
     typingActive.current = false;
   }, [chat.id, onTypingStop]);
 
+  const getSenderId = (message) =>
+    message?.senderId || message?.sender?.id || message?.sender?._id || message?.sender || null;
+
   useEffect(
     () => () => {
       if (typingTimer.current) {
@@ -62,17 +65,26 @@ const ChatWindow = ({
     if (!messages || !messages.length) return;
 
     const threshold = lastReadAt || chat.lastReadAt;
+    const currentUserIdStr = currentUserId?.toString();
 
-    if (!threshold) {
-      setUnreadSeparatorMessageId(messages[0].id || messages[0]._id);
-      return;
-    }
+    const separatorId = messages.reduce((acc, message) => {
+      if (acc) return acc;
+      const senderId = getSenderId(message);
+      const isOwnMessage = senderId && currentUserIdStr && senderId.toString() === currentUserIdStr;
+      if (isOwnMessage) return null;
 
-    const firstUnread = messages.find((message) => new Date(message.createdAt) > new Date(threshold));
-    if (firstUnread) {
-      setUnreadSeparatorMessageId(firstUnread.id || firstUnread._id);
+      if (!threshold) {
+        return message.id || message._id || null;
+      }
+
+      const isNewerThanRead = new Date(message.createdAt) > new Date(threshold);
+      return isNewerThanRead ? message.id || message._id || null : null;
+    }, null);
+
+    if (separatorId) {
+      setUnreadSeparatorMessageId(separatorId);
     }
-  }, [chat, messages, lastReadAt, unreadSeparatorMessageId, separatorCleared]);
+  }, [chat, messages, lastReadAt, unreadSeparatorMessageId, separatorCleared, currentUserId]);
 
   useEffect(() => {
     if (listRef.current) {

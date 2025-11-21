@@ -37,6 +37,9 @@ const GroupDirectoryModal = ({
 }) => {
   if (!isOpen) return null;
 
+  const isMemberStatuses = new Set(['owner', 'admin', 'member']);
+  const availableGroups = groups.filter((group) => !isMemberStatuses.has(group.membershipStatus));
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal large" onClick={(e) => e.stopPropagation()}>
@@ -87,8 +90,34 @@ const GroupDirectoryModal = ({
                 </button>
               </div>
             ) : (
-              <div className="group-list single-column">
-                <p className="muted">Создавать группы может только администратор системы.</p>
+              <div className="group-list single-column group-list-scroll">
+                <p className="muted">
+                  Вы можете подать заявку на вступление в рабочие группы вашей клиники.
+                </p>
+                {availableGroups.map((group) => {
+                  const isPending = group.membershipStatus === 'pending';
+                  return (
+                    <div key={group.id} className="group-card">
+                      <div>
+                        <div className="group-card__title">{group.title}</div>
+                        <div className="group-card__meta">Участников: {group.participantsCount}</div>
+                      </div>
+                      <div className="btn-row">
+                        <button
+                          type="button"
+                          className={`secondary-btn${isPending ? ' disabled' : ''}`}
+                          onClick={() => onRequestJoin(group)}
+                          disabled={isPending}
+                        >
+                          {isPending ? 'Заявка отправлена' : 'Отправить заявку'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {!availableGroups.length && (
+                  <p className="muted">Нет доступных групп для подачи заявки.</p>
+                )}
               </div>
             )}
           </div>

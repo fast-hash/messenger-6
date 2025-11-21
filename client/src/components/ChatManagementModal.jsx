@@ -73,7 +73,7 @@ const ChatManagementModal = ({
           <div className="modal-body-scroll">
             {groupsLoading && <p className="muted">Загрузка групп...</p>}
             {!groupsLoading && (
-              <div className="group-list">
+              <div className="group-list group-list-scroll">
                 {groups.map((group) => (
                   <div key={group.id} className="group-card">
                     <div>

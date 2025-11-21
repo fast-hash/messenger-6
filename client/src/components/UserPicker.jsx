@@ -37,7 +37,7 @@ const UserPicker = ({ mode, users, selectedIds, onChange, excludeIds, placeholde
         onChange={(e) => setSearch(e.target.value)}
         placeholder={placeholder}
       />
-      <div className="user-picker__list">
+      <div className="user-picker__list user-list-scroll">
         {filtered.map((user) => {
           const isSelected = selectedIds.includes(user.id);
           return (
