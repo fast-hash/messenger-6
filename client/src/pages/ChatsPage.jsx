@@ -68,16 +68,28 @@ const ChatsPage = () => {
     loadChats(user.id);
   }, [user, connectSocket, loadChats, reset, navigate]);
 
-  useEffect(() => {
-    if (selectedChatId && !messages[selectedChatId]) {
-      loadMessages(selectedChatId);
-    }
-  }, [selectedChatId, messages, loadMessages]);
-
   const selectedChat = useMemo(
     () => chats.find((chat) => chat.id === selectedChatId) || null,
     [chats, selectedChatId]
   );
+
+  const isRemovedFromSelectedGroup = useMemo(() => {
+    if (!selectedChat || selectedChat.type !== 'group') return false;
+    const participantIds = (selectedChat.participants || []).map((p) => (p.id || p._id || p).toString());
+    const currentId = user?.id?.toString();
+    return (
+      selectedChat.removed ||
+      selectedChat.removedParticipants?.some((id) => (id?.toString?.() || id) === currentId) ||
+      !participantIds.includes(currentId)
+    );
+  }, [selectedChat, user?.id]);
+
+  useEffect(() => {
+    if (selectedChatId && !messages[selectedChatId]) {
+      if (isRemovedFromSelectedGroup) return;
+      loadMessages(selectedChatId);
+    }
+  }, [selectedChatId, messages, loadMessages, isRemovedFromSelectedGroup]);
 
   const typingUsers = useMemo(() => typing[selectedChatId] || [], [typing, selectedChatId]);
   const canCreateGroup = user && user.role === 'admin';

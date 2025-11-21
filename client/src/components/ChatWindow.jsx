@@ -91,7 +91,7 @@ const ChatWindow = ({
   }, [messages]);
 
   const participantIds = useMemo(
-    () => (chat.participants || []).map((p) => p.id || p._id),
+    () => (chat.participants || []).map((p) => (p.id || p._id || p).toString()),
     [chat.participants]
   );
 
@@ -100,10 +100,11 @@ const ChatWindow = ({
     return chat.otherUser || chat.participants.find((p) => p.id !== currentUserId) || null;
   }, [chat.otherUser, chat.participants, chat.type, currentUserId]);
 
+  const currentId = currentUserId?.toString();
   const isRemovedFromGroup =
     chat.type === 'group' &&
-    (!participantIds.includes(currentUserId) ||
-      (chat.removedParticipants || []).includes(currentUserId) ||
+    (!participantIds.includes(currentId) ||
+      (chat.removedParticipants || []).some((id) => (id?.toString?.() || id) === currentId) ||
       chat.removed);
 
   const isBlockedByMe =
@@ -275,6 +276,7 @@ const ChatWindow = ({
       <div className="chat-window__messages" ref={listRef}>
         {messages.length === 0 && <p className="empty-state">Нет сообщений. Напишите первым.</p>}
         {messages.map((message) => {
+          const messageId = message.id || message._id;
           const isMine = getSenderId(message)?.toString() === currentUserId?.toString();
           const sender = message.sender || {};
           const authorName = sender.displayName || sender.username || 'Участник';
@@ -285,9 +287,9 @@ const ChatWindow = ({
           const authorMeta = metaParts.join(' · ');
 
           return (
-            <div key={message.id}>
+            <div key={messageId || message.id}>
               {unreadSeparatorMessageId &&
-                (message.id === unreadSeparatorMessageId || message._id === unreadSeparatorMessageId) && (
+                (messageId === unreadSeparatorMessageId || message._id === unreadSeparatorMessageId) && (
                   <div className="unread-separator">
                     <span>— Непрочитанные сообщения —</span>
                   </div>

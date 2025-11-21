@@ -49,12 +49,13 @@ export const useChatStore = create((set, get) => ({
     socket.on('message:new', ({ message }) => {
       const state = get();
       const chatState = state.chats.find((c) => c.id === message.chatId);
-      const participantIds = (chatState?.participants || []).map((p) => p.id || p._id || p);
+      const participantIds = (chatState?.participants || []).map((p) => (p.id || p._id || p).toString());
+      const currentId = currentUserId?.toString();
       const isRemovedFromGroup =
         chatState?.type === 'group' &&
         (chatState.removed ||
-          chatState.removedParticipants?.includes(currentUserId) ||
-          !participantIds.includes(currentUserId));
+          chatState.removedParticipants?.some((id) => (id?.toString?.() || id) === currentId) ||
+          !participantIds.includes(currentId));
 
       if (isRemovedFromGroup) {
         return;
