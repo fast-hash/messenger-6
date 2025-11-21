@@ -122,8 +122,32 @@ button {
   margin-bottom: 12px;
 }
 
-.sidebar__top .primary-btn {
+.sidebar-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
   width: 100%;
+}
+
+.sidebar-actions__btn {
+  flex: 1;
+  height: 44px;
+  border-radius: 8px;
+  border: none;
+  font-weight: 600;
+  font-size: 14px;
+  background: #2563eb;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.sidebar-actions__btn:hover {
+  background: #1d4ed8;
+}
+
+.sidebar-actions__btn:active {
+  transform: translateY(1px);
 }
 
 .chat-list {
@@ -316,6 +340,21 @@ button {
   background: #fff;
 }
 
+.chat-input-bar {
+  padding: 8px 16px;
+  border-top: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.chat-input-banner {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #e5f0ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  text-align: center;
+}
+
 .message-input {
   flex: 1;
   padding: 10px 12px;
@@ -331,6 +370,76 @@ button {
   border-radius: 10px;
   padding: 10px 14px;
   font-weight: 600;
+}
+
+.vk-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+}
+
+.vk-input__circle-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e5e7eb;
+  cursor: pointer;
+  padding: 0;
+}
+
+.vk-input__circle-btn:disabled {
+  cursor: default;
+}
+
+.vk-input__plus {
+  font-size: 22px;
+  line-height: 1;
+  color: #4b5563;
+}
+
+.vk-input__textarea {
+  flex: 1;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.vk-input__send-wrapper {
+  display: flex;
+  align-items: center;
+  padding-left: 8px;
+  border-left: 1px solid #e5e7eb;
+}
+
+.vk-input__send {
+  background: #e5e7eb;
+  color: #9ca3af;
+}
+
+.vk-input__send-icon {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+}
+
+.vk-input__send--active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.vk-input__send--active:hover {
+  background: #1d4ed8;
 }
 
 .secondary-btn {
