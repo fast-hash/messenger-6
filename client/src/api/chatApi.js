@@ -59,3 +59,23 @@ export const markChatRead = async (chatId) => {
   const { data } = await httpClient.post(`/api/chats/${chatId}/read`);
   return data;
 };
+
+export const blockChat = async (chatId) => {
+  const { data } = await httpClient.post(`/api/chats/${chatId}/block`);
+  return data;
+};
+
+export const unblockChat = async (chatId) => {
+  const { data } = await httpClient.delete(`/api/chats/${chatId}/block`);
+  return data;
+};
+
+export const listDirectChatsAdmin = async () => {
+  const { data } = await httpClient.get('/api/admin/chats/direct');
+  return data;
+};
+
+export const clearBlocksAdmin = async (chatId) => {
+  const { data } = await httpClient.delete(`/api/admin/chats/${chatId}/blocks`);
+  return data;
+};

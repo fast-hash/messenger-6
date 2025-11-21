@@ -3,8 +3,11 @@ const Message = require('../models/Message');
 const cryptoService = require('./crypto/cryptoService');
 
 const ensureParticipant = (chatDoc, userId, { allowRemoved = false } = {}) => {
-  const participantIds = chatDoc.participants.map((id) => id.toString());
-  const removedIds = (chatDoc.removedFor || []).map((id) => id.toString());
+  const participantIds = (chatDoc.participants || []).map((id) => id.toString());
+  const removedIds = [
+    ...(chatDoc.removedFor || []).map((id) => id.toString()),
+    ...(chatDoc.removedParticipants || []).map((id) => id.toString()),
+  ];
   const idStr = userId.toString();
 
   if (participantIds.includes(idStr)) {
@@ -64,10 +67,29 @@ const sendMessage = async ({ chatId, senderId, text }) => {
     throw error;
   }
 
-  if (chat.type === 'group' && (chat.removedFor || []).some((id) => id.toString() === senderId.toString())) {
-    const error = new Error('Вы больше не являетесь участником группы');
-    error.status = 403;
-    throw error;
+  if (chat.type === 'group') {
+    const isParticipant = (chat.participants || []).some((id) => id.toString() === senderId.toString());
+    if (!isParticipant) {
+      const error = new Error('Вы больше не являетесь участником группы');
+      error.status = 403;
+      throw error;
+    }
+  }
+
+  if (chat.type === 'direct') {
+    const participantIds = (chat.participants || []).map((id) => id.toString());
+    const otherId = participantIds.find((id) => id !== senderId.toString());
+    const hasBlock = (chat.blocks || []).some(
+      (b) =>
+        (b.by && b.by.toString() === senderId.toString() && b.target && b.target.toString() === otherId) ||
+        (b.by && b.by.toString() === otherId && b.target && b.target.toString() === senderId.toString())
+    );
+
+    if (hasBlock) {
+      const error = new Error('Диалог заблокирован');
+      error.status = 403;
+      throw error;
+    }
   }
 
   ensureParticipant(chat, senderId);
@@ -128,7 +150,11 @@ const getMessagesForChat = async ({ chatId, viewerId }) => {
     results.push(toMessageDto(message, safeText));
   }
 
-  return results;
+  const readState = (chat.readState || []).find(
+    (entry) => entry.user && entry.user.toString() === viewerId.toString()
+  );
+
+  return { messages: results, lastReadAt: readState ? readState.lastReadAt : null };
 };
 
 module.exports = {

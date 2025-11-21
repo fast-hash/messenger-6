@@ -59,31 +59,54 @@ const normalizeObjectIds = (list = []) => {
 const cleanJoinRequests = (requests = []) =>
   requests.filter((req) => req && req.user && mongoose.isValidObjectId(req.user));
 
-const toChatDto = (chatDoc, currentUserId) => ({
-  id: chatDoc._id.toString(),
-  type: chatDoc.type || 'direct',
-  title: chatDoc.type === 'group' ? chatDoc.title : null,
-  createdBy: chatDoc.createdBy ? chatDoc.createdBy.toString() : null,
-  admins: (chatDoc.admins || []).map((admin) =>
-    admin._id ? admin._id.toString() : admin.toString()
-  ),
-  participants: (chatDoc.participants || []).map(mapUser),
-  createdAt: chatDoc.createdAt,
-  lastMessage: chatDoc.lastMessage
-    ? {
-        text: chatDoc.lastMessage.text,
-        senderId: chatDoc.lastMessage.sender
-          ? chatDoc.lastMessage.sender.toString()
-          : null,
-        createdAt: chatDoc.lastMessage.createdAt,
-      }
-    : null,
-  updatedAt: chatDoc.updatedAt,
-  removed:
-    currentUserId && (chatDoc.removedFor || []).some((id) => id.toString() === currentUserId.toString()),
-  notificationsEnabled: chatDoc.notificationsEnabled !== false,
-  lastReadAt: currentUserId ? findReadState(chatDoc, currentUserId)?.lastReadAt || null : null,
-});
+const toChatDto = (chatDoc, currentUserId) => {
+  const participantIds = (chatDoc.participants || []).map((p) =>
+    p._id ? p._id.toString() : p.toString()
+  );
+  const removedParticipants = (chatDoc.removedParticipants || []).map((id) =>
+    id._id ? id._id.toString() : id.toString()
+  );
+
+  const isRemoved = (() => {
+    if (!currentUserId) return false;
+    const idStr = currentUserId.toString();
+    if (chatDoc.type !== 'group') return false;
+    if (!participantIds.includes(idStr)) return true;
+    if ((chatDoc.removedFor || []).some((id) => id.toString() === idStr)) return true;
+    return removedParticipants.includes(idStr);
+  })();
+
+  return {
+    id: chatDoc._id.toString(),
+    type: chatDoc.type || 'direct',
+    title: chatDoc.type === 'group' ? chatDoc.title : null,
+    createdBy: chatDoc.createdBy ? chatDoc.createdBy.toString() : null,
+    admins: (chatDoc.admins || []).map((admin) =>
+      admin._id ? admin._id.toString() : admin.toString()
+    ),
+    participants: (chatDoc.participants || []).map(mapUser),
+    removedParticipants,
+    blocks: (chatDoc.blocks || []).map((block) => ({
+      by: block.by ? block.by.toString() : null,
+      target: block.target ? block.target.toString() : null,
+      createdAt: block.createdAt,
+    })),
+    createdAt: chatDoc.createdAt,
+    lastMessage: chatDoc.lastMessage
+      ? {
+          text: chatDoc.lastMessage.text,
+          senderId: chatDoc.lastMessage.sender
+            ? chatDoc.lastMessage.sender.toString()
+            : null,
+          createdAt: chatDoc.lastMessage.createdAt,
+        }
+      : null,
+    updatedAt: chatDoc.updatedAt,
+    removed: isRemoved,
+    notificationsEnabled: chatDoc.notificationsEnabled !== false,
+    lastReadAt: currentUserId ? findReadState(chatDoc, currentUserId)?.lastReadAt || null : null,
+  };
+};
 
 const computeUnreadCount = async (chat, userId) => {
   const state = (chat.readState || []).find((entry) => entry.user && entry.user.toString() === userId.toString());
@@ -304,6 +327,13 @@ const groupAddParticipant = async ({ chatId, adminId, userId }) => {
     (req) => req.user && req.user.toString() !== participantObjectId.toString()
   );
 
+  chat.removedParticipants = (chat.removedParticipants || []).filter(
+    (id) => id.toString() !== participantObjectId.toString()
+  );
+  chat.removedFor = (chat.removedFor || []).filter(
+    (id) => id.toString() !== participantObjectId.toString()
+  );
+
   await chat.save();
   await chat.populate([
     { path: 'participants', select: 'username email displayName role department jobTitle' },
@@ -350,6 +380,11 @@ const groupRemoveParticipant = async ({ chatId, adminId, userId }) => {
 
   chat.removedFor = Array.from(
     new Set([...(chat.removedFor || []).map((id) => id.toString()), participantObjectId.toString()])
+  );
+  chat.removedParticipants = Array.from(
+    new Set(
+      [...(chat.removedParticipants || []).map((id) => id.toString()), participantObjectId.toString()]
+    )
   );
   await chat.save();
   await chat.populate([
@@ -448,6 +483,94 @@ const groupRejectRequest = async ({ chatId, adminId, userId }) => {
   return getGroupDetails({ chatId, userId: adminId });
 };
 
+const blockUserInDirectChat = async (chatId, blockerId) => {
+  const chat = await Chat.findById(chatId);
+  if (!chat || chat.type !== 'direct') {
+    const error = new Error('Чат не найден');
+    error.status = 404;
+    throw error;
+  }
+
+  const participantIds = (chat.participants || []).map((id) => id.toString());
+  if (!participantIds.includes(blockerId.toString())) {
+    const error = new Error('Недостаточно прав для операции');
+    error.status = 403;
+    throw error;
+  }
+
+  const otherId = participantIds.find((id) => id !== blockerId.toString());
+
+  await Chat.updateOne({ _id: chatId }, { $pull: { blocks: { by: blockerId, target: otherId } } });
+  await Chat.updateOne(
+    { _id: chatId },
+    {
+      $push: {
+        blocks: { by: blockerId, target: otherId, createdAt: new Date() },
+      },
+    }
+  );
+
+  const updated = await Chat.findById(chatId).populate('participants');
+  return toChatDto(updated, blockerId);
+};
+
+const unblockUserInDirectChat = async (chatId, blockerId) => {
+  const chat = await Chat.findById(chatId);
+  if (!chat || chat.type !== 'direct') {
+    const error = new Error('Чат не найден');
+    error.status = 404;
+    throw error;
+  }
+
+  const participantIds = (chat.participants || []).map((id) => id.toString());
+  if (!participantIds.includes(blockerId.toString())) {
+    const error = new Error('Недостаточно прав для операции');
+    error.status = 403;
+    throw error;
+  }
+
+  const otherId = participantIds.find((id) => id !== blockerId.toString());
+
+  await Chat.updateOne(
+    { _id: chatId },
+    {
+      $pull: {
+        blocks: { by: blockerId, target: otherId },
+      },
+    }
+  );
+
+  const updated = await Chat.findById(chatId).populate('participants');
+  return toChatDto(updated, blockerId);
+};
+
+const listDirectChatsForAdmin = async () => {
+  const chats = await Chat.find({ type: 'direct' }).populate('participants');
+  return chats.map((chat) => ({
+    id: chat._id.toString(),
+    participants: (chat.participants || []).map(mapUser),
+    blocks: (chat.blocks || []).map((block) => ({
+      by: block.by ? block.by.toString() : null,
+      target: block.target ? block.target.toString() : null,
+      createdAt: block.createdAt,
+    })),
+  }));
+};
+
+const removeAllBlocksFromDirectChat = async (chatId) => {
+  const chat = await Chat.findById(chatId);
+  if (!chat || chat.type !== 'direct') {
+    const error = new Error('Чат не найден');
+    error.status = 404;
+    throw error;
+  }
+
+  chat.blocks = [];
+  await chat.save();
+  await chat.populate('participants');
+  return toChatDto(chat, null);
+};
+
 const markChatRead = async ({ chatId, userId }) => {
   const chat = await Chat.findById(chatId);
   if (!chat) {
@@ -481,5 +604,9 @@ module.exports = {
   groupRequestJoin,
   groupApproveRequest,
   groupRejectRequest,
+  blockUserInDirectChat,
+  unblockUserInDirectChat,
+  listDirectChatsForAdmin,
+  removeAllBlocksFromDirectChat,
   markChatRead,
 };

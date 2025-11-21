@@ -47,11 +47,25 @@ const chatSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    removedParticipants: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: [],
+      },
+    ],
     removedFor: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
         default: [],
+      },
+    ],
+    blocks: [
+      {
+        by: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        target: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+        createdAt: { type: Date, default: Date.now },
       },
     ],
     readState: [
