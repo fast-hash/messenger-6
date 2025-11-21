@@ -10,6 +10,8 @@ const mapChat = (chat, currentUserId) => {
     notificationsEnabled: chat.notificationsEnabled ?? true,
     unreadCount: chat.unreadCount ?? 0,
     lastReadAt: chat.lastReadAt || null,
+    removedParticipants: chat.removedParticipants || [],
+    blocks: chat.blocks || [],
   };
 
   if (chat.type === 'group') {
@@ -32,6 +34,7 @@ export const useChatStore = create((set, get) => ({
   chats: [],
   selectedChatId: null,
   messages: {},
+  messageMeta: {},
   typing: {},
   socket: null,
   connectSocket(currentUserId) {
@@ -44,9 +47,17 @@ export const useChatStore = create((set, get) => ({
     });
 
     socket.on('message:new', ({ message }) => {
+      const state = get();
+      const chatState = state.chats.find((c) => c.id === message.chatId);
+      const participantIds = (chatState?.participants || []).map((p) => p.id || p._id || p);
+      const isRemovedFromGroup =
+        chatState?.type === 'group' && !participantIds.includes(currentUserId);
+      if (isRemovedFromGroup) {
+        return;
+      }
+
       get().addMessage(message.chatId, message);
       get().updateChatLastMessage(message.chatId, message);
-      const state = get();
       const isOwn = message.senderId === currentUserId;
       const isCurrent = state.selectedChatId === message.chatId;
       if (isCurrent && !isOwn) {
@@ -58,7 +69,6 @@ export const useChatStore = create((set, get) => ({
         state.setChatUnreadCount(message.chatId, nextCount);
       }
 
-      const chatState = state.chats.find((c) => c.id === message.chatId);
       const notificationsEnabled = chatState?.notificationsEnabled !== false;
       if (!isOwn && notificationsEnabled) {
         playIncomingSound();
@@ -109,7 +119,7 @@ export const useChatStore = create((set, get) => ({
     if (socket) {
       socket.disconnect();
     }
-    set({ chats: [], selectedChatId: null, messages: {}, typing: {}, socket: null });
+    set({ chats: [], selectedChatId: null, messages: {}, messageMeta: {}, typing: {}, socket: null });
   },
   async loadChats(currentUserId) {
     const { chats } = await chatApi.getChats();
@@ -141,13 +151,20 @@ export const useChatStore = create((set, get) => ({
     }
   },
   async loadMessages(chatId) {
-    const { messages } = await messagesApi.getMessages(chatId);
+    const { messages, lastReadAt } = await messagesApi.getMessages(chatId);
     set((state) => ({
       messages: {
         ...state.messages,
         [chatId]: messages,
       },
+      messageMeta: {
+        ...state.messageMeta,
+        [chatId]: { lastReadAt },
+      },
     }));
+    if (lastReadAt) {
+      get().setChatLastRead(chatId, lastReadAt);
+    }
   },
   async sendMessage(chatId, text) {
     const socket = get().socket;
@@ -172,6 +189,11 @@ export const useChatStore = create((set, get) => ({
         },
       };
     });
+  },
+  setChatBlocks(chatId, blocks) {
+    set((state) => ({
+      chats: state.chats.map((chat) => (chat.id === chatId ? { ...chat, blocks } : chat)),
+    }));
   },
   updateChatLastMessage(chatId, message) {
     set((state) => {

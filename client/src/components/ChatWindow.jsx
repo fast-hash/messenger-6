@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import VkStyleInput from './VkStyleInput';
 import { formatRole } from '../utils/roleLabels';
 import { ensureNotificationPermission } from '../utils/notifications';
 import { formatMessageDate } from '../utils/dateUtils';
@@ -7,32 +8,83 @@ import { formatMessageDate } from '../utils/dateUtils';
 const ChatWindow = ({
   chat,
   messages,
+  lastReadAt,
   currentUserId,
   typingUsers,
   onToggleNotifications,
   onOpenManage,
+  onSend,
+  onTypingStart,
+  onTypingStop,
+  socketConnected,
+  onBlock,
+  onUnblock,
 }) => {
   const listRef = useRef(null);
+  const typingTimer = useRef(null);
+  const typingActive = useRef(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [firstUnreadMessageId, setFirstUnreadMessageId] = useState(null);
+  const [unreadSeparatorMessageId, setUnreadSeparatorMessageId] = useState(null);
+  const [showManageModal, setShowManageModal] = useState(false);
+  const [separatorCleared, setSeparatorCleared] = useState(false);
+  const [messageText, setMessageText] = useState('');
 
   useEffect(() => {
     setShowSettings(false);
-    setFirstUnreadMessageId(null);
-  }, [chat.id]);
+    setUnreadSeparatorMessageId(null);
+    setShowManageModal(false);
+    setSeparatorCleared(false);
+    setMessageText('');
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+    }
+    if (typingActive.current && onTypingStop) {
+      onTypingStop(chat.id);
+    }
+    typingActive.current = false;
+  }, [chat.id, onTypingStop]);
+
+  const getSenderId = (message) =>
+    message?.senderId || message?.sender?.id || message?.sender?._id || message?.sender || null;
+
+  useEffect(
+    () => () => {
+      if (typingTimer.current) {
+        clearTimeout(typingTimer.current);
+      }
+      if (typingActive.current && onTypingStop) {
+        onTypingStop(chat.id);
+      }
+      typingActive.current = false;
+    },
+    [chat.id, onTypingStop]
+  );
 
   useEffect(() => {
-    if (!chat) return;
-    if (firstUnreadMessageId) return;
+    if (!chat || unreadSeparatorMessageId || separatorCleared) return;
+    if (!messages || !messages.length) return;
 
-    const unreadCount = chat.unreadCount || 0;
-    if (!unreadCount || !messages.length) return;
+    const threshold = lastReadAt || chat.lastReadAt;
+    const currentUserIdStr = currentUserId?.toString();
 
-    const index = messages.length - unreadCount;
-    if (index >= 0 && index < messages.length) {
-      setFirstUnreadMessageId(messages[index].id || messages[index]._id);
+    const separatorId = messages.reduce((acc, message) => {
+      if (acc) return acc;
+      const senderId = getSenderId(message);
+      const isOwnMessage = senderId && currentUserIdStr && senderId.toString() === currentUserIdStr;
+      if (isOwnMessage) return null;
+
+      if (!threshold) {
+        return message.id || message._id || null;
+      }
+
+      const isNewerThanRead = new Date(message.createdAt) > new Date(threshold);
+      return isNewerThanRead ? message.id || message._id || null : null;
+    }, null);
+
+    if (separatorId) {
+      setUnreadSeparatorMessageId(separatorId);
     }
-  }, [chat?.id, messages.length, firstUnreadMessageId]);
+  }, [chat, messages, lastReadAt, unreadSeparatorMessageId, separatorCleared, currentUserId]);
 
   useEffect(() => {
     if (listRef.current) {
@@ -40,7 +92,32 @@ const ChatWindow = ({
     }
   }, [messages]);
 
+  const participantIds = useMemo(
+    () => (chat.participants || []).map((p) => p.id || p._id),
+    [chat.participants]
+  );
+
+  const otherUser = useMemo(() => {
+    if (chat.type !== 'direct') return null;
+    return chat.otherUser || chat.participants.find((p) => p.id !== currentUserId) || null;
+  }, [chat.otherUser, chat.participants, chat.type, currentUserId]);
+
+  const isRemovedFromGroup =
+    chat.type === 'group' &&
+    (!participantIds.includes(currentUserId) ||
+      (chat.removedParticipants || []).includes(currentUserId) ||
+      chat.removed);
+
+  const isBlockedByMe =
+    chat.type === 'direct' &&
+    (chat.blocks || []).some((b) => b.by === currentUserId && b.target === otherUser?.id);
+  const isBlockedMe =
+    chat.type === 'direct' &&
+    (chat.blocks || []).some((b) => b.by === otherUser?.id && b.target === currentUserId);
+  const chatBlocked = chat.type === 'direct' && (isBlockedByMe || isBlockedMe);
+
   const typingHint = useMemo(() => {
+    if (isRemovedFromGroup || chatBlocked) return '';
     if (chat.type === 'group') {
       if (typingUsers?.length) {
         const names = chat.participants
@@ -52,24 +129,105 @@ const ChatWindow = ({
       }
       return '';
     }
-    const isOtherTyping = typingUsers?.includes(chat.otherUser?.id);
+    const isOtherTyping = typingUsers?.includes(otherUser?.id);
     return isOtherTyping
-      ? `Пользователь ${chat.otherUser?.displayName || chat.otherUser?.username || 'собеседник'} печатает...`
+      ? `Пользователь ${otherUser?.displayName || otherUser?.username || 'собеседник'} печатает...`
       : '';
-  }, [chat.otherUser, chat.participants, chat.type, typingUsers]);
+  }, [chat.participants, chat.type, typingUsers, otherUser, isRemovedFromGroup, chatBlocked]);
 
-  const canManage =
+  const canManageGroup =
     chat.type === 'group' &&
     (chat.createdBy === currentUserId || (chat.admins || []).includes(currentUserId));
 
   const headerTitle =
     chat.type === 'group'
       ? chat.title || 'Групповой чат'
-      : chat.otherUser?.displayName || chat.otherUser?.username;
+      : otherUser?.displayName || otherUser?.username;
   const headerMeta =
     chat.type === 'group'
       ? `Участников: ${chat.participants?.length || 0}`
-      : `${formatRole(chat.otherUser?.role)} · ${chat.otherUser?.department || 'Отдел не указан'} · ${chat.isOnline ? 'онлайн' : 'офлайн'}`;
+      : `${formatRole(otherUser?.role)} · ${otherUser?.department || 'Отдел не указан'} · ${
+          chat.isOnline ? 'онлайн' : 'офлайн'
+        }`;
+
+  const bottomNotice = useMemo(() => {
+    if (isRemovedFromGroup) {
+      return 'Вы удалены из этой группы. Вы можете просматривать историю сообщений, но отправка новых сообщений недоступна.';
+    }
+
+    if (!chatBlocked) return '';
+
+    if (isBlockedByMe && isBlockedMe) {
+      return 'Вы с этим пользователем заблокировали друг друга. Переписка в этом чате недоступна, пока хотя бы один из вас не снимет блокировку.';
+    }
+
+    if (isBlockedByMe) {
+      return 'Вы заблокировали этого пользователя. Переписка в этом чате временно недоступна. Чтобы продолжить, разблокируйте пользователя в разделе "Управление".';
+    }
+
+    if (isBlockedMe) {
+      return 'Этот пользователь заблокировал вас. Вы не можете отправлять сообщения в этом чате.';
+    }
+
+    return '';
+  }, [chatBlocked, isBlockedByMe, isBlockedMe, isRemovedFromGroup]);
+
+  const handleInputChange = (value) => {
+    setMessageText(value);
+    const hasText = value.trim().length > 0;
+
+    if (hasText && !typingActive.current) {
+      onTypingStart && onTypingStart(chat.id);
+      typingActive.current = true;
+    }
+
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+    }
+
+    typingTimer.current = setTimeout(() => {
+      if (typingActive.current) {
+        onTypingStop && onTypingStop(chat.id);
+      }
+      typingActive.current = false;
+    }, 1200);
+
+    if (!hasText) {
+      if (typingActive.current) {
+        onTypingStop && onTypingStop(chat.id);
+      }
+      typingActive.current = false;
+    }
+  };
+
+  const handleSend = () => {
+    const trimmed = messageText.trim();
+    if (!trimmed) return;
+    setUnreadSeparatorMessageId(null);
+    setSeparatorCleared(true);
+    onSend(trimmed);
+    setMessageText('');
+    if (typingActive.current) {
+      onTypingStop && onTypingStop(chat.id);
+    }
+    typingActive.current = false;
+    if (typingTimer.current) {
+      clearTimeout(typingTimer.current);
+    }
+  };
+
+  const showInput = !isRemovedFromGroup && !chatBlocked;
+  const typingHintVisible = showInput && typingHint;
+
+  useEffect(() => {
+    if (!showInput && typingActive.current) {
+      if (typingTimer.current) {
+        clearTimeout(typingTimer.current);
+      }
+      onTypingStop && onTypingStop(chat.id);
+      typingActive.current = false;
+    }
+  }, [showInput, onTypingStop, chat.id]);
 
   return (
     <div className="chat-window">
@@ -79,8 +237,18 @@ const ChatWindow = ({
           <div className="chat-window__meta">{headerMeta}</div>
         </div>
         <div className="chat-window__actions">
-          {canManage && (
-            <button type="button" className="secondary-btn" onClick={() => onOpenManage(chat.id)}>
+          {(canManageGroup || chat.type === 'direct') && (
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={() => {
+                if (chat.type === 'group') {
+                  onOpenManage(chat.id);
+                } else {
+                  setShowManageModal(true);
+                }
+              }}
+            >
               Управление
             </button>
           )}
@@ -108,8 +276,9 @@ const ChatWindow = ({
       </div>
       <div className="chat-window__messages" ref={listRef}>
         {messages.length === 0 && <p className="empty-state">Нет сообщений. Напишите первым.</p>}
-        {messages.map((message, index) => {
-          const isMine = message.senderId === currentUserId;
+        {messages.map((message) => {
+          const senderId = getSenderId(message);
+          const isMine = senderId && currentUserId && senderId.toString() === currentUserId.toString();
           const sender = message.sender || {};
           const authorName = sender.displayName || sender.username || 'Участник';
           const metaParts = [];
@@ -120,11 +289,12 @@ const ChatWindow = ({
 
           return (
             <div key={message.id}>
-              {firstUnreadMessageId && (message.id === firstUnreadMessageId || message._id === firstUnreadMessageId) && (
-                <div className="unread-separator">
-                  <span>Непрочитанные сообщения</span>
-                </div>
-              )}
+              {unreadSeparatorMessageId &&
+                (message.id === unreadSeparatorMessageId || message._id === unreadSeparatorMessageId) && (
+                  <div className="unread-separator">
+                    <span>— Непрочитанные сообщения —</span>
+                  </div>
+                )}
               <div className={`message-row ${isMine ? 'message-row--mine' : 'message-row--incoming'}`}>
                 <div className="message-content">
                   <div className="message-author">
@@ -139,12 +309,61 @@ const ChatWindow = ({
           );
         })}
       </div>
-      {chat.removed && chat.type === 'group' && (
-        <div className="typing-hint warning">
-          Вас удалили из этой группы. Вы можете просматривать историю, но отправка отключена.
+      {typingHintVisible && <div className="typing-hint">{typingHint}</div>}
+      <div className="chat-input-bar">
+        {bottomNotice ? (
+          <div className="chat-input-banner">{bottomNotice}</div>
+        ) : (
+          <VkStyleInput
+            value={messageText}
+            onChange={handleInputChange}
+            onSend={handleSend}
+            disabled={!socketConnected}
+          />
+        )}
+      </div>
+      {showManageModal && chat.type === 'direct' && (
+        <div className="modal-backdrop" onClick={() => setShowManageModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__header">
+              <h3>Управление чатом</h3>
+              <button type="button" className="secondary-btn" onClick={() => setShowManageModal(false)}>
+                Закрыть
+              </button>
+            </div>
+            <p className="muted">
+              {isBlockedByMe
+                ? 'Вы заблокировали этого пользователя. Чтобы снова начать переписку, разблокируйте его.'
+                : 'Вы можете заблокировать этого пользователя. В этом случае оба участника не смогут отправлять сообщения в этом чате.'}
+            </p>
+            <div className="btn-row">
+              {isBlockedByMe ? (
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={async () => {
+                    await onUnblock(chat.id);
+                    setShowManageModal(false);
+                  }}
+                >
+                  Разблокировать
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="primary-btn"
+                  onClick={async () => {
+                    await onBlock(chat.id);
+                    setShowManageModal(false);
+                  }}
+                >
+                  Заблокировать
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
-      {!chat.removed && typingHint && <div className="typing-hint">{typingHint}</div>}
     </div>
   );
 };
@@ -162,10 +381,13 @@ ChatWindow.propTypes = {
     createdBy: PropTypes.string,
     admins: PropTypes.arrayOf(PropTypes.string),
     lastReadAt: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+    removedParticipants: PropTypes.array,
+    blocks: PropTypes.array,
   }).isRequired,
   messages: PropTypes.arrayOf(
     PropTypes.shape({
-      id: PropTypes.string.isRequired,
+      id: PropTypes.string,
+      _id: PropTypes.string,
       chatId: PropTypes.string.isRequired,
       senderId: PropTypes.string.isRequired,
       sender: PropTypes.object,
@@ -173,16 +395,30 @@ ChatWindow.propTypes = {
       createdAt: PropTypes.string,
     })
   ).isRequired,
+  lastReadAt: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
   currentUserId: PropTypes.string.isRequired,
   typingUsers: PropTypes.arrayOf(PropTypes.string),
   onToggleNotifications: PropTypes.func,
   onOpenManage: PropTypes.func,
+  onSend: PropTypes.func,
+  onTypingStart: PropTypes.func,
+  onTypingStop: PropTypes.func,
+  socketConnected: PropTypes.bool,
+  onBlock: PropTypes.func,
+  onUnblock: PropTypes.func,
 };
 
 ChatWindow.defaultProps = {
   typingUsers: [],
   onToggleNotifications: () => {},
   onOpenManage: () => {},
+  onSend: () => {},
+  onTypingStart: () => {},
+  onTypingStop: () => {},
+  socketConnected: false,
+  lastReadAt: null,
+  onBlock: () => {},
+  onUnblock: () => {},
 };
 
 export default ChatWindow;
